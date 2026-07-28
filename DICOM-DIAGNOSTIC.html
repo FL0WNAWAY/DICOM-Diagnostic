@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DICOM Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0f14;
+    --panel:#141922;
+    --panel-2:#1b2230;
+    --line:#283142;
+    --ink:#e8edf4;
+    --ink-dim:#9aa7bd;
+    --ink-faint:#637088;
+    --accent:#4cc9f0;
+    --ok:#3ddc84;
+    --warn:#f2b53c;
+    --err:#ff5d6c;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'IBM Plex Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #16202e 0%, transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 28px 80px}
+  header.app{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:28px}
+  header.app h1{font-size:30px;font-weight:700;letter-spacing:-0.02em;margin:0}
+  header.app .sub{font-family:var(--mono);font-size:12px;color:var(--ink-faint);
+    text-transform:uppercase;letter-spacing:0.18em}
+  .tagline{color:var(--ink-dim);font-size:14px;max-width:60ch;margin:-14px 0 28px}
+
+  /* Drop zone */
+  .drop{
+    border:1.5px dashed var(--line);border-radius:14px;background:var(--panel);
+    padding:34px 24px;text-align:center;cursor:pointer;transition:.18s;
+    position:relative;overflow:hidden;
+  }
+  .drop:hover{border-color:var(--accent);background:var(--panel-2)}
+  .drop.drag{border-color:var(--accent);background:#16222e;box-shadow:0 0 0 4px #4cc9f01a inset}
+  .drop .big{font-size:16px;font-weight:600}
+  .drop .small{color:var(--ink-faint);font-size:13px;margin-top:6px;font-family:var(--mono)}
+  .drop svg{opacity:.5;margin-bottom:6px}
+
+  .fileline{display:none;align-items:center;gap:12px;flex-wrap:wrap;
+    margin-top:18px;font-family:var(--mono);font-size:13px;color:var(--ink-dim)}
+  .fileline.show{display:flex}
+  .badge{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;
+    border-radius:999px;letter-spacing:.06em;border:1px solid var(--line)}
+  .badge.mod{background:#11202b;color:var(--accent);border-color:#1d4356}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+    gap:24px;margin-top:28px;align-items:start}
+  @media (max-width:880px){.grid{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .card h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.16em;
+    color:var(--ink-dim);margin:0;padding:15px 18px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);display:flex;justify-content:space-between;align-items:center}
+  .card .body{padding:18px}
+
+  /* Viewer */
+  .canvas-shell{background:#000;border-radius:10px;display:flex;align-items:center;
+    justify-content:center;min-height:340px;position:relative}
+  canvas{max-width:100%;image-rendering:pixelated;display:block}
+  .nopreview{color:var(--ink-faint);font-family:var(--mono);font-size:13px;
+    text-align:center;padding:40px 24px;line-height:1.6}
+  .nopreview b{color:var(--warn)}
+
+  .ctrl{margin-top:16px}
+  .ctrl-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .ctrl-row label{font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+    width:64px;text-transform:uppercase;letter-spacing:.08em;flex:none}
+  .ctrl-row .val{font-family:var(--mono);font-size:13px;color:var(--ink);
+    width:62px;text-align:right;flex:none}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;
+    background:var(--line);width:100%;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
+    border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid #0c0f14;
+    box-shadow:0 0 0 1px var(--accent)}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:2px solid #0c0f14}
+  .presets{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+  .presets button{font-family:var(--mono);font-size:11px;background:var(--panel-2);
+    color:var(--ink-dim);border:1px solid var(--line);border-radius:7px;padding:5px 10px;
+    cursor:pointer;transition:.15s}
+  .presets button:hover{border-color:var(--accent);color:var(--ink)}
+
+  /* Header check table */
+  .checkrow{padding:14px 0;border-bottom:1px solid var(--line)}
+  .checkrow:last-child{border-bottom:none}
+  .checkrow .top{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .checkrow .name{font-weight:600;font-size:14px}
+  .checkrow .code{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+  .chip{font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 8px;
+    border-radius:999px;letter-spacing:.08em;margin-left:auto;text-transform:uppercase}
+  .chip.ok{background:#0f2b1d;color:var(--ok)}
+  .chip.warn{background:#2e2410;color:var(--warn)}
+  .chip.err{background:#2e1418;color:var(--err)}
+  .chip.info{background:#13202b;color:var(--accent)}
+  .checkrow .value{font-family:var(--mono);font-size:13px;color:var(--ink);
+    word-break:break-word;margin-bottom:4px}
+  .checkrow .hint{font-size:12.5px;color:var(--ink-dim);line-height:1.5}
+  .checkrow .hint .lab{color:var(--ink-faint)}
+
+  .dlbtn{display:inline-flex;align-items:center;gap:8px;margin-top:18px;
+    font-family:var(--mono);font-size:13px;font-weight:500;background:var(--accent);
+    color:#04141c;border:none;border-radius:9px;padding:11px 16px;cursor:pointer;
+    transition:.15s}
+  .dlbtn:hover{filter:brightness(1.08)}
+  .dlbtn.ghost{background:transparent;color:var(--ink-dim);border:1px solid var(--line)}
+  .dlbtn.ghost:hover{border-color:var(--accent);color:var(--ink)}
+
+  .empty{color:var(--ink-faint);font-family:var(--mono);font-size:13px;
+    text-align:center;padding:36px 20px}
+  .err-banner{background:#2e1418;border:1px solid #5a2630;color:#ffb3bc;
+    border-radius:10px;padding:14px 16px;font-family:var(--mono);font-size:13px;
+    margin-top:18px;display:none}
+  .err-banner.show{display:block}
+  footer{margin-top:48px;color:var(--ink-faint);font-size:12px;font-family:var(--mono);
+    line-height:1.7;border-top:1px solid var(--line);padding-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="app">
+    <h1>DICOM&nbsp;Checker</h1>
+    <span class="sub">header · viewer · runs locally</span>
+  </header>
+  <p class="tagline">Drop a DICOM file to inspect its header, validate the SOP class and transfer
+    syntax, and preview the image with adjustable window / level. Everything runs in your
+    browser &mdash; no file ever leaves this machine.</p>
+
+  <div id="drop" class="drop">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+    </svg>
+    <div class="big">Drop a DICOM file here</div>
+    <div class="small">or click to browse &middot; .dcm or no extension</div>
+    <input type="file" id="fileInput" style="display:none">
+  </div>
+
+  <div id="fileline" class="fileline">
+    <span class="badge" id="fileName">&mdash;</span>
+    <span class="badge mod" id="modBadge" style="display:none"></span>
+    <span id="dims" style="color:var(--ink-faint)"></span>
+  </div>
+
+  <div id="errBanner" class="err-banner"></div>
+
+  <div class="grid">
+    <!-- VIEWER -->
+    <div class="card">
+      <h2>Image Preview <span id="frameTag" style="color:var(--ink-faint)"></span></h2>
+      <div class="body">
+        <div class="canvas-shell" id="canvasShell">
+          <div class="empty" id="viewerEmpty">No image loaded</div>
+          <canvas id="cv" style="display:none"></canvas>
+          <div class="nopreview" id="noPreview" style="display:none"></div>
+        </div>
+        <div class="ctrl" id="controls" style="display:none">
+          <div class="ctrl-row">
+            <label>Level</label>
+            <input type="range" id="wcSlider">
+            <span class="val" id="wcVal">0</span>
+          </div>
+          <div class="ctrl-row">
+            <label>Window</label>
+            <input type="range" id="wwSlider">
+            <span class="val" id="wwVal">0</span>
+          </div>
+          <div class="ctrl-row" id="frameRow" style="display:none">
+            <label>Slice</label>
+            <input type="range" id="frameSlider">
+            <span class="val" id="frameVal">0</span>
+          </div>
+          <div class="presets" id="presets"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HEADER CHECK -->
+    <div class="card">
+      <h2>Header Check</h2>
+      <div class="body">
+        <div id="checkArea"><div class="empty">Load a file to run checks</div></div>
+        <div id="dlArea" style="display:none">
+          <button class="dlbtn" id="dlHeader">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+            Download full header (.txt)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Supports uncompressed transfer syntaxes (Implicit / Explicit VR Little Endian) for image
+    preview. Compressed, deflated, or big-endian pixel data parses for the header check but
+    will not render here &mdash; that needs the decompression step from the original tool.
+    Window presets assume rescaled (e.g. HU) values.
+  </footer>
+</div>
+
+<script>/*! dicom-parser - 1.8.12 - 2023-02-20 | (c) 2017 Chris Hafey | https://github.com/cornerstonejs/dicomParser */
+!function(e,t){"object"==typeof exports&&"object"==typeof module?module.exports=t(require("zlib")):"function"==typeof define&&define.amd?define("dicom-parser",["zlib"],t):"object"==typeof exports?exports["dicom-parser"]=t(require("zlib")):e.dicomParser=t(e.zlib)}(this,function(r){return a=[function(e,t){e.exports=r},function(e,t,s){"use strict";s.r(t),s.d(t,"isStringVr",function(){return d}),s.d(t,"isPrivateTag",function(){return f}),s.d(t,"parsePN",function(){return a}),s.d(t,"parseTM",function(){return n}),s.d(t,"parseDA",function(){return o}),s.d(t,"explicitElementToString",function(){return l}),s.d(t,"explicitDataSetToJS",function(){return u}),s.d(t,"createJPEGBasicOffsetTable",function(){return p}),s.d(t,"parseDicomDataSetExplicit",function(){return q}),s.d(t,"parseDicomDataSetImplicit",function(){return T}),s.d(t,"readFixedString",function(){return b}),s.d(t,"alloc",function(){return k}),s.d(t,"version",function(){return L}),s.d(t,"bigEndianByteArrayParser",function(){return N}),s.d(t,"ByteStream",function(){return J}),s.d(t,"sharedCopy",function(){return j}),s.d(t,"DataSet",function(){return w}),s.d(t,"findAndSetUNElementLength",function(){return y}),s.d(t,"findEndOfEncapsulatedElement",function(){return g}),s.d(t,"findItemDelimitationItemAndSetElementLength",function(){return x}),s.d(t,"littleEndianByteArrayParser",function(){return M}),s.d(t,"parseDicom",function(){return V}),s.d(t,"readDicomElementExplicit",function(){return B}),s.d(t,"readDicomElementImplicit",function(){return A}),s.d(t,"readEncapsulatedImageFrame",function(){return W}),s.d(t,"readEncapsulatedPixelData",function(){return K}),s.d(t,"readEncapsulatedPixelDataFromFragments",function(){return _}),s.d(t,"readPart10Header",function(){return G}),s.d(t,"readSequenceItemsExplicit",function(){return I}),s.d(t,"readSequenceItemsImplicit",function(){return F}),s.d(t,"readSequenceItem",function(){return S}),s.d(t,"readTag",function(){return h});var r={AE:!0,AS:!0,AT:!1,CS:!0,DA:!0,DS:!0,DT:!0,FL:!1,FD:!1,IS:!0,LO:!0,LT:!0,OB:!1,OD:!1,OF:!1,OW:!1,PN:!0,SH:!0,SL:!1,SQ:!1,SS:!1,ST:!0,TM:!0,UI:!0,UL:!1,UN:void 0,UR:!0,US:!1,UT:!0},d=function(e){return r[e]},f=function(e){e=parseInt(e[4],16);if(isNaN(e))throw"dicomParser.isPrivateTag: cannot parse last character of group";return e%2==1},a=function(e){if(void 0!==e){e=e.split("^");return{familyName:e[0],givenName:e[1],middleName:e[2],prefix:e[3],suffix:e[4]}}};function n(e,t){if(2<=e.length){var r=parseInt(e.substring(0,2),10),a=4<=e.length?parseInt(e.substring(2,4),10):void 0,n=6<=e.length?parseInt(e.substring(4,6),10):void 0,i=8<=e.length?e.substring(7,13):void 0,i=i?parseInt(i,10)*Math.pow(10,6-i.length):void 0;if(t&&(isNaN(r)||void 0!==a&&isNaN(a)||void 0!==n&&isNaN(n)||void 0!==i&&isNaN(i)||r<0||23<r||a&&(a<0||59<a)||n&&(n<0||59<n)||i&&(i<0||999999<i)))throw"invalid TM '".concat(e,"'");return{hours:r,minutes:a,seconds:n,fractionalSeconds:i}}if(t)throw"invalid TM '".concat(e,"'")}function i(e,t,r){return!isNaN(r)&&(0<t&&t<=12&&0<e&&e<=function(e,t){switch(e){case 2:return t%4==0&&t%100||t%400==0?29:28;case 9:case 4:case 6:case 11:return 30;default:return 31}}(t,r))}function o(e,t){if(e&&8===e.length){var r=parseInt(e.substring(0,4),10),a=parseInt(e.substring(4,6),10),n=parseInt(e.substring(6,8),10);if(t&&!0!==i(n,a,r))throw"invalid DA '".concat(e,"'");return{year:r,month:a,day:n}}if(t)throw"invalid DA '".concat(e,"'")}function l(n,e){if(void 0===n||void 0===e)throw"dicomParser.explicitElementToString: missing required parameters";if(void 0===e.vr)throw"dicomParser.explicitElementToString: cannot convert implicit element to string";var t,r=e.vr,i=e.tag;function a(e,t){for(var r="",a=0;a<e;a++)0!==a&&(r+="/"),r+=t.call(n,i,a).toString();return r}if(!0===d(r))t=n.string(i);else{if("AT"===r){var o=n.uint32(i);return void 0===o?void 0:"x".concat((o=o<0?4294967295+o+1:o).toString(16).toUpperCase())}"US"===r?t=a(e.length/2,n.uint16):"SS"===r?t=a(e.length/2,n.int16):"UL"===r?t=a(e.length/4,n.uint32):"SL"===r?t=a(e.length/4,n.int32):"FD"===r?t=a(e.length/8,n.double):"FL"===r&&(t=a(e.length/4,n.float))}return t}function u(e,t){if(void 0===e)throw"dicomParser.explicitDataSetToJS: missing required parameter dataSet";t=t||{omitPrivateAttibutes:!0,maxElementLength:128};var r,a={};for(r in e.elements){var n=e.elements[r];if(!0!==t.omitPrivateAttibutes||!f(r))if(n.items){for(var i=[],o=0;o<n.items.length;o++)i.push(u(n.items[o].dataSet,t));a[r]=i}else{var s=void 0;n.length<t.maxElementLength&&(s=l(e,n)),a[r]=void 0!==s?s:{dataOffset:n.dataOffset,length:n.length}}}return a}function c(e,t){return 255===e.byteArray[t]&&217===e.byteArray[t+1]}function m(e,t,r){for(var a,n,i=r;i<t.fragments.length;i++)if(a=e,n=i,n=t.fragments[n],!(!c(a,n.position+n.length-2)&&!c(a,n.position+n.length-3)))return i}function p(e,t,r){if(void 0===e)throw"dicomParser.createJPEGBasicOffsetTable: missing required parameter dataSet";if(void 0===t)throw"dicomParser.createJPEGBasicOffsetTable: missing required parameter pixelDataElement";if("x7fe00010"!==t.tag)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'pixelDataElement' refers to non pixel data tag (expected tag = x7fe00010'";if(!0!==t.encapsulatedPixelData)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(!0!==t.hadUndefinedLength)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(void 0===t.basicOffsetTable)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(void 0===t.fragments)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(t.fragments.length<=0)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(r&&r.length<=0)throw"dicomParser.createJPEGBasicOffsetTable: parameter 'fragments' must not be zero length";r=r||t.fragments;for(var a=[],n=0;;){a.push(t.fragments[n].offset);var i=m(e,t,n);if(void 0===i||i===t.fragments.length-1)return a;n=i+1}}function h(e){if(void 0===e)throw"dicomParser.readTag: missing required parameter 'byteStream'";var t=256*e.readUint16()*256,e=e.readUint16();return"x".concat("00000000".concat((t+e).toString(16)).substr(-8))}function g(e,t,r){if(void 0===e)throw"dicomParser.findEndOfEncapsulatedElement: missing required parameter 'byteStream'";if(void 0===t)throw"dicomParser.findEndOfEncapsulatedElement: missing required parameter 'element'";if(t.encapsulatedPixelData=!0,t.basicOffsetTable=[],t.fragments=[],"xfffee000"!==h(e))throw"dicomParser.findEndOfEncapsulatedElement: basic offset table not found";for(var a=e.readUint32()/4,n=0;n<a;n++){var i=e.readUint32();t.basicOffsetTable.push(i)}for(var o=e.position;e.position<e.byteArray.length;){var s=h(e),d=e.readUint32();if("xfffee0dd"===s)return e.seek(d),void(t.length=e.position-t.dataOffset);if("xfffee000"!==s)return r&&r.push("unexpected tag ".concat(s," while searching for end of pixel data element with undefined length")),d>e.byteArray.length-e.position&&(d=e.byteArray.length-e.position),t.fragments.push({offset:e.position-o-8,position:e.position,length:d}),e.seek(d),void(t.length=e.position-t.dataOffset);t.fragments.push({offset:e.position-o-8,position:e.position,length:d}),e.seek(d)}r&&r.push("pixel data element ".concat(t.tag," missing sequence delimiter tag xfffee0dd"))}function y(e,t){if(void 0===e)throw"dicomParser.findAndSetUNElementLength: missing required parameter 'byteStream'";for(var r=e.byteArray.length-8;e.position<=r;)if(65534===e.readUint16()){var a=e.readUint16();if(57565===a)return 0!==e.readUint32()&&e.warnings("encountered non zero length following item delimiter at position ".concat(e.position-4," while reading element of undefined length with tag ").concat(t.tag)),void(t.length=e.position-t.dataOffset)}t.length=e.byteArray.length-t.dataOffset,e.seek(e.byteArray.length-e.position)}function b(e,t,r){if(r<0)throw"dicomParser.readFixedString - length cannot be less than 0";if(t+r>e.length)throw"dicomParser.readFixedString: attempt to read past end of buffer";for(var a,n="",i=0;i<r;i++){if(0===(a=e[t+i]))return t+=r,n;n+=String.fromCharCode(a)}return n}function v(e,t){for(var r=0;r<t.length;r++){var a=t[r];a.enumerable=a.enumerable||!1,a.configurable=!0,"value"in a&&(a.writable=!0),Object.defineProperty(e,a.key,a)}}function P(e,t){return void 0!==e.parser?e.parser:t}var w=function(){function a(e,t,r){!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,a),this.byteArrayParser=e,this.byteArray=t,this.elements=r}var e,t,r;return e=a,(t=[{key:"uint16",value:function(e,t){e=this.elements[e];if(t=void 0!==t?t:0,e&&0!==e.length)return P(e,this.byteArrayParser).readUint16(this.byteArray,e.dataOffset+2*t)}},{key:"int16",value:function(e,t){e=this.elements[e];if(t=void 0!==t?t:0,e&&0!==e.length)return P(e,this.byteArrayParser).readInt16(this.byteArray,e.dataOffset+2*t)}},{key:"uint32",value:function(e,t){e=this.elements[e];if(t=void 0!==t?t:0,e&&0!==e.length)return P(e,this.byteArrayParser).readUint32(this.byteArray,e.dataOffset+4*t)}},{key:"int32",value:function(e,t){e=this.elements[e];if(t=void 0!==t?t:0,e&&0!==e.length)return P(e,this.byteArrayParser).readInt32(this.byteArray,e.dataOffset+4*t)}},{key:"float",value:function(e,t){e=this.elements[e];if(t=void 0!==t?t:0,e&&0!==e.length)return P(e,this.byteArrayParser).readFloat(this.byteArray,e.dataOffset+4*t)}},{key:"double",value:function(e,t){e=this.elements[e];if(t=void 0!==t?t:0,e&&0!==e.length)return P(e,this.byteArrayParser).readDouble(this.byteArray,e.dataOffset+8*t)}},{key:"numStringValues",value:function(e){e=this.elements[e];if(e&&0<e.length){e=b(this.byteArray,e.dataOffset,e.length).match(/\\/g);return null===e?1:e.length+1}}},{key:"string",value:function(e,t){e=this.elements[e];if(e&&e.Value)return e.Value;if(e&&0<e.length){e=b(this.byteArray,e.dataOffset,e.length);return 0<=t?e.split("\\")[t].trim():e.trim()}}},{key:"text",value:function(e,t){e=this.elements[e];if(e&&0<e.length){e=b(this.byteArray,e.dataOffset,e.length);return 0<=t?e.split("\\")[t].replace(/ +$/,""):e.replace(/ +$/,"")}}},{key:"floatString",value:function(e,t){var r=this.elements[e];if(r&&0<r.length){t=this.string(e,t=void 0!==t?t:0);if(void 0!==t)return parseFloat(t)}}},{key:"intString",value:function(e,t){var r=this.elements[e];if(r&&0<r.length){t=this.string(e,t=void 0!==t?t:0);if(void 0!==t)return parseInt(t)}}},{key:"attributeTag",value:function(e){var t=this.elements[e];if(t&&4===t.length){var r=P(t,this.byteArrayParser).readUint16,e=this.byteArray,t=t.dataOffset;return"x".concat("00000000".concat((256*r(e,t)*256+r(e,t+2)).toString(16)).substr(-8))}}}])&&v(e.prototype,t),r&&v(e,r),Object.defineProperty(e,"prototype",{writable:!1}),a}();function x(e,t){if(void 0===e)throw"dicomParser.readDicomElementImplicit: missing required parameter 'byteStream'";for(var r=e.byteArray.length-8;e.position<=r;)if(65534===e.readUint16()){var a=e.readUint16();if(57357===a)return 0!==e.readUint32()&&e.warnings("encountered non zero length following item delimiter at position ".concat(e.position-4," while reading element of undefined length with tag ").concat(t.tag)),void(t.length=e.position-t.dataOffset)}t.length=e.byteArray.length-t.dataOffset,e.seek(e.byteArray.length-e.position)}var E=function(e,t){if(void 0!==e.vr)return"SQ"===e.vr;if(t.position+4<=t.byteArray.length){e=h(t);return t.seek(-4),"xfffee000"===e||"xfffee0dd"===e}return t.warnings.push("eof encountered before finding sequence item tag or sequence delimiter tag in peeking to determine VR"),!1};function A(e,t,r){if(void 0===e)throw"dicomParser.readDicomElementImplicit: missing required parameter 'byteStream'";var a=h(e),a={tag:a,vr:void 0!==r?r(a):void 0,length:e.readUint32(),dataOffset:e.position};return 4294967295===a.length&&(a.hadUndefinedLength=!0),a.tag===t||(!E(a,e)||f(a.tag)&&!a.hadUndefinedLength?a.hadUndefinedLength?x(e,a):e.seek(a.length):(F(e,a,r),f(a.tag)&&(a.items=void 0))),a}function S(e){if(void 0===e)throw"dicomParser.readSequenceItem: missing required parameter 'byteStream'";var t={tag:h(e),length:e.readUint32(),dataOffset:e.position};if("xfffee000"!==t.tag)throw"dicomParser.readSequenceItem: item tag (FFFE,E000) not found at offset ".concat(e.position);return t}function D(e,t){var r=S(e);return 4294967295===r.length?(r.hadUndefinedLength=!0,r.dataSet=function(e,t){for(var r={};e.position<e.byteArray.length;){var a=A(e,void 0,t);if("xfffee00d"===(r[a.tag]=a).tag)return new w(e.byteArrayParser,e.byteArray,r)}return e.warnings.push("eof encountered before finding sequence item delimiter in sequence item of undefined length"),new w(e.byteArrayParser,e.byteArray,r)}(e,t),r.length=e.position-r.dataOffset):(r.dataSet=new w(e.byteArrayParser,e.byteArray,{}),T(r.dataSet,e,e.position+r.length,{vrCallback:t})),r}function F(e,t,r){if(void 0===e)throw"dicomParser.readSequenceItemsImplicit: missing required parameter 'byteStream'";if(void 0===t)throw"dicomParser.readSequenceItemsImplicit: missing required parameter 'element'";t.items=[],(4294967295===t.length?function(e,t,r){for(;e.position+4<=e.byteArray.length;){var a=h(e);if(e.seek(-4),"xfffee0dd"===a)return t.length=e.position-t.dataOffset,e.seek(8);a=D(e,r);t.items.push(a)}e.warnings.push("eof encountered before finding sequence delimiter in sequence of undefined length"),t.length=e.byteArray.length-t.dataOffset}:function(e,t,r){for(var a=t.dataOffset+t.length;e.position<a;){var n=D(e,r);t.items.push(n)}})(e,t,r)}function O(e,t){var r=S(e);return 4294967295===r.length?(r.hadUndefinedLength=!0,r.dataSet=function(e,t){for(var r={};e.position<e.byteArray.length;){var a=B(e,t);if("xfffee00d"===(r[a.tag]=a).tag)return new w(e.byteArrayParser,e.byteArray,r)}return t.push("eof encountered before finding item delimiter tag while reading sequence item of undefined length"),new w(e.byteArrayParser,e.byteArray,r)}(e,t),r.length=e.position-r.dataOffset):(r.dataSet=new w(e.byteArrayParser,e.byteArray,{}),q(r.dataSet,e,e.position+r.length)),r}function I(e,t,r){if(void 0===e)throw"dicomParser.readSequenceItemsExplicit: missing required parameter 'byteStream'";if(void 0===t)throw"dicomParser.readSequenceItemsExplicit: missing required parameter 'element'";t.items=[],(4294967295===t.length?function(e,t,r){for(;e.position+4<=e.byteArray.length;){var a=h(e);if(e.seek(-4),"xfffee0dd"===a)return t.length=e.position-t.dataOffset,e.seek(8);a=O(e,r);t.items.push(a)}r.push("eof encountered before finding sequence delimitation tag while reading sequence of undefined length"),t.length=e.position-t.dataOffset}:function(e,t,r){for(var a=t.dataOffset+t.length;e.position<a;){var n=O(e,r);t.items.push(n)}})(e,t,r)}var U=function(e){return"OB"===e||"OD"===e||"OL"===e||"OW"===e||"SQ"===e||"OF"===e||"UC"===e||"UR"===e||"UT"===e||"UN"===e?4:2};function B(e,t,r){if(void 0===e)throw"dicomParser.readDicomElementExplicit: missing required parameter 'byteStream'";var a={tag:h(e),vr:e.readFixedString(2)};return 2===U(a.vr)?a.length=e.readUint16():(e.seek(2),a.length=e.readUint32()),a.dataOffset=e.position,4294967295===a.length&&(a.hadUndefinedLength=!0),a.tag===r||("SQ"===a.vr?I(e,a,t):4294967295===a.length?"x7fe00010"===a.tag?g(e,a,t):("UN"===a.vr?F:x)(e,a):e.seek(a.length)),a}function q(e,t,r){var a=3<arguments.length&&void 0!==arguments[3]?arguments[3]:{};if(r=void 0===r?t.byteArray.length:r,void 0===t)throw"dicomParser.parseDicomDataSetExplicit: missing required parameter 'byteStream'";if(r<t.position||r>t.byteArray.length)throw"dicomParser.parseDicomDataSetExplicit: invalid value for parameter 'maxP osition'";for(var n=e.elements;t.position<r;){var i=B(t,e.warnings,a.untilTag);if((n[i.tag]=i).tag===a.untilTag)return}if(t.position>r)throw"dicomParser:parseDicomDataSetExplicit: buffer overrun"}function T(e,t,r){var a=3<arguments.length&&void 0!==arguments[3]?arguments[3]:{};if(r=void 0===r?e.byteArray.length:r,void 0===t)throw"dicomParser.parseDicomDataSetImplicit: missing required parameter 'byteStream'";if(r<t.position||r>t.byteArray.length)throw"dicomParser.parseDicomDataSetImplicit: invalid value for parameter 'maxPosition'";for(var n=e.elements;t.position<r;){var i=A(t,a.untilTag,a.vrCallback);if((n[i.tag]=i).tag===a.untilTag)return}}function k(e,t){if("undefined"!=typeof Buffer&&e instanceof Buffer)return Buffer.alloc(t);if(e instanceof Uint8Array)return new Uint8Array(t);throw"dicomParser.alloc: unknown type for byteArray"}var L="1.8.12",N={readUint16:function(e,t){if(t<0)throw"bigEndianByteArrayParser.readUint16: position cannot be less than 0";if(t+2>e.length)throw"bigEndianByteArrayParser.readUint16: attempt to read past end of buffer";return(e[t]<<8)+e[t+1]},readInt16:function(e,t){if(t<0)throw"bigEndianByteArrayParser.readInt16: position cannot be less than 0";if(t+2>e.length)throw"bigEndianByteArrayParser.readInt16: attempt to read past end of buffer";t=(e[t]<<8)+e[t+1];return t=32768&t?t-65535-1:t},readUint32:function(e,t){if(t<0)throw"bigEndianByteArrayParser.readUint32: position cannot be less than 0";if(t+4>e.length)throw"bigEndianByteArrayParser.readUint32: attempt to read past end of buffer";return 256*(256*(256*e[t]+e[t+1])+e[t+2])+e[t+3]},readInt32:function(e,t){if(t<0)throw"bigEndianByteArrayParser.readInt32: position cannot be less than 0";if(t+4>e.length)throw"bigEndianByteArrayParser.readInt32: attempt to read past end of buffer";return(e[t]<<24)+(e[t+1]<<16)+(e[t+2]<<8)+e[t+3]},readFloat:function(e,t){if(t<0)throw"bigEndianByteArrayParser.readFloat: position cannot be less than 0";if(t+4>e.length)throw"bigEndianByteArrayParser.readFloat: attempt to read past end of buffer";var r=new Uint8Array(4);return r[3]=e[t],r[2]=e[t+1],r[1]=e[t+2],r[0]=e[t+3],new Float32Array(r.buffer)[0]},readDouble:function(e,t){if(t<0)throw"bigEndianByteArrayParser.readDouble: position cannot be less than 0";if(t+8>e.length)throw"bigEndianByteArrayParser.readDouble: attempt to read past end of buffer";var r=new Uint8Array(8);return r[7]=e[t],r[6]=e[t+1],r[5]=e[t+2],r[4]=e[t+3],r[3]=e[t+4],r[2]=e[t+5],r[1]=e[t+6],r[0]=e[t+7],new Float64Array(r.buffer)[0]}};function j(e,t,r){if("undefined"!=typeof Buffer&&e instanceof Buffer)return e.slice(t,t+r);if(e instanceof Uint8Array)return new Uint8Array(e.buffer,e.byteOffset+t,r);throw"dicomParser.from: unknown type for byteArray"}function C(e,t){for(var r=0;r<t.length;r++){var a=t[r];a.enumerable=a.enumerable||!1,a.configurable=!0,"value"in a&&(a.writable=!0),Object.defineProperty(e,a.key,a)}}var J=function(){function a(e,t,r){if(!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,a),void 0===e)throw"dicomParser.ByteStream: missing required parameter 'byteArrayParser'";if(void 0===t)throw"dicomParser.ByteStream: missing required parameter 'byteArray'";if(t instanceof Uint8Array==!1&&("undefined"==typeof Buffer||t instanceof Buffer==!1))throw"dicomParser.ByteStream: parameter byteArray is not of type Uint8Array or Buffer";if(r<0)throw"dicomParser.ByteStream: parameter 'position' cannot be less than 0";if(r>=t.length)throw"dicomParser.ByteStream: parameter 'position' cannot be greater than or equal to 'byteArray' length";this.byteArrayParser=e,this.byteArray=t,this.position=r||0,this.warnings=[]}var e,t,r;return e=a,(t=[{key:"seek",value:function(e){if(this.position+e<0)throw"dicomParser.ByteStream.prototype.seek: cannot seek to position < 0";this.position+=e}},{key:"readByteStream",value:function(e){if(this.position+e>this.byteArray.length)throw"dicomParser.ByteStream.prototype.readByteStream: readByteStream - buffer overread";var t=j(this.byteArray,this.position,e);return this.position+=e,new a(this.byteArrayParser,t)}},{key:"getSize",value:function(){return this.byteArray.length}},{key:"readUint16",value:function(){var e=this.byteArrayParser.readUint16(this.byteArray,this.position);return this.position+=2,e}},{key:"readUint32",value:function(){var e=this.byteArrayParser.readUint32(this.byteArray,this.position);return this.position+=4,e}},{key:"readFixedString",value:function(e){var t=b(this.byteArray,this.position,e);return this.position+=e,t}}])&&C(e.prototype,t),r&&C(e,r),Object.defineProperty(e,"prototype",{writable:!1}),a}(),M={readUint16:function(e,t){if(t<0)throw"littleEndianByteArrayParser.readUint16: position cannot be less than 0";if(t+2>e.length)throw"littleEndianByteArrayParser.readUint16: attempt to read past end of buffer";return e[t]+256*e[t+1]},readInt16:function(e,t){if(t<0)throw"littleEndianByteArrayParser.readInt16: position cannot be less than 0";if(t+2>e.length)throw"littleEndianByteArrayParser.readInt16: attempt to read past end of buffer";t=e[t]+(e[t+1]<<8);return t=32768&t?t-65535-1:t},readUint32:function(e,t){if(t<0)throw"littleEndianByteArrayParser.readUint32: position cannot be less than 0";if(t+4>e.length)throw"littleEndianByteArrayParser.readUint32: attempt to read past end of buffer";return e[t]+256*e[t+1]+256*e[t+2]*256+256*e[t+3]*256*256},readInt32:function(e,t){if(t<0)throw"littleEndianByteArrayParser.readInt32: position cannot be less than 0";if(t+4>e.length)throw"littleEndianByteArrayParser.readInt32: attempt to read past end of buffer";return e[t]+(e[t+1]<<8)+(e[t+2]<<16)+(e[t+3]<<24)},readFloat:function(e,t){if(t<0)throw"littleEndianByteArrayParser.readFloat: position cannot be less than 0";if(t+4>e.length)throw"littleEndianByteArrayParser.readFloat: attempt to read past end of buffer";var r=new Uint8Array(4);return r[0]=e[t],r[1]=e[t+1],r[2]=e[t+2],r[3]=e[t+3],new Float32Array(r.buffer)[0]},readDouble:function(e,t){if(t<0)throw"littleEndianByteArrayParser.readDouble: position cannot be less than 0";if(t+8>e.length)throw"littleEndianByteArrayParser.readDouble: attempt to read past end of buffer";var r=new Uint8Array(8);return r[0]=e[t],r[1]=e[t+1],r[2]=e[t+2],r[3]=e[t+3],r[4]=e[t+4],r[5]=e[t+5],r[6]=e[t+6],r[7]=e[t+7],new Float64Array(r.buffer)[0]}};function G(e){var i=1<arguments.length&&void 0!==arguments[1]?arguments[1]:{};if(void 0===e)throw"dicomParser.readPart10Header: missing required parameter 'byteArray'";var o=i.TransferSyntaxUID,s=new J(M,e);return function(){var e=function(){if(s.getSize()<=132&&o)return!1;if(s.seek(128),"DICM"===s.readFixedString(4))return!0;if(!(i||{}).TransferSyntaxUID)throw"dicomParser.readPart10Header: DICM prefix not found at location 132 - this is not a valid DICOM P10 file.";return s.seek(0),!1}(),t=[],r={};if(!e)return s.position=0,{elements:{x00020010:{tag:"x00020010",vr:"UI",Value:o}},warnings:t};for(;s.position<s.byteArray.length;){var a=s.position,n=B(s,t);if("x0002ffff"<n.tag){s.position=a;break}n.parser=M,r[n.tag]=n}return(e=new w(s.byteArrayParser,s.byteArray,r)).warnings=s.warnings,e.position=s.position,e}()}var z="1.2.840.10008.1.2.2";function V(i){var o=1<arguments.length&&void 0!==arguments[1]?arguments[1]:{};if(void 0===i)throw new Error("dicomParser.parseDicom: missing required parameter 'byteArray'");var e,a=function(e){if(void 0===e.elements.x00020010)throw new Error("dicomParser.parseDicom: missing required meta header attribute 0002,0010");e=e.elements.x00020010;return e&&e.Value||b(i,e.dataOffset,e.length)};function t(t){var e=a(t),r="1.2.840.10008.1.2"!==e,e=function(e,t){var r="[object process]"===Object.prototype.toString.call("undefined"!=typeof process?process:0);if("1.2.840.10008.1.2.1.99"!==e)return new J(e===z?N:M,i,t);if(o&&o.inflater){e=o.inflater(i,t);return new J(M,e,0)}if(!0==r){var a=s(0),n=j(i,t,i.length-t),a=a.inflateRawSync(n),n=k(i,a.length+t);return i.copy(n,0,0,t),a.copy(n,t),new J(M,n,0)}if("undefined"==typeof pako)throw"dicomParser.parseDicom: no inflater available to handle deflate transfer syntax";return a=i.slice(t),n=pako.inflateRaw(a),(a=k(i,n.length+t)).set(i.slice(0,t),0),a.set(n,t),new J(M,a,0)}(e,t.position),t=new w(e.byteArrayParser,e.byteArray,{});t.warnings=e.warnings;try{(r?q:T)(t,e,e.byteArray.length,o)}catch(e){throw{exception:e,dataSet:t}}return t}return function(e,t){for(var r in e.elements)e.elements.hasOwnProperty(r)&&(t.elements[r]=e.elements[r]);return void 0!==e.warnings&&(t.warnings=e.warnings.concat(t.warnings)),t}(e=G(i,o),t(e))}var R=function(e,t,r){for(var a=0,n=t;n<t+r;n++)a+=e[n].length;return a};function _(e,t,r,a,n){if(n=n||t.fragments,void 0===e)throw"dicomParser.readEncapsulatedPixelDataFromFragments: missing required parameter 'dataSet'";if(void 0===t)throw"dicomParser.readEncapsulatedPixelDataFromFragments: missing required parameter 'pixelDataElement'";if(void 0===r)throw"dicomParser.readEncapsulatedPixelDataFromFragments: missing required parameter 'startFragmentIndex'";if(void 0===(a=a||1))throw"dicomParser.readEncapsulatedPixelDataFromFragments: missing required parameter 'numFragments'";if("x7fe00010"!==t.tag)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'pixelDataElement' refers to non pixel data tag (expected tag = x7fe00010";if(!0!==t.encapsulatedPixelData)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(!0!==t.hadUndefinedLength)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(void 0===t.basicOffsetTable)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(void 0===t.fragments)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(t.fragments.length<=0)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(r<0)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'startFragmentIndex' must be >= 0";if(r>=t.fragments.length)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'startFragmentIndex' must be < number of fragments";if(a<1)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'numFragments' must be > 0";if(r+a>t.fragments.length)throw"dicomParser.readEncapsulatedPixelDataFromFragments: parameter 'startFragment' + 'numFragments' < number of fragments";var i=new J(e.byteArrayParser,e.byteArray,t.dataOffset),t=S(i);if("xfffee000"!==t.tag)throw"dicomParser.readEncapsulatedPixelData: missing basic offset table xfffee000";i.seek(t.length);var o=i.position;if(1===a)return j(i.byteArray,o+n[r].offset+8,n[r].length);for(var t=R(n,r,a),s=k(i.byteArray,t),d=0,f=r;f<r+a;f++)for(var l=o+n[f].offset+8,u=0;u<n[f].length;u++)s[d++]=i.byteArray[l++];return s}var H=function(e,t){for(var r=0;r<e.length;r++)if(e[r].offset===t)return r},Q=function(e,t,r,a){if(e===t.length-1)return r.length-a;for(var n=t[e+1],i=a+1;i<r.length;i++)if(r[i].offset===n)return i-a;throw"dicomParser.calculateNumberOfFragmentsForFrame: could not find fragment with offset matching basic offset table"};function W(e,t,r,a,n){if(a=a||t.basicOffsetTable,n=n||t.fragments,void 0===e)throw"dicomParser.readEncapsulatedImageFrame: missing required parameter 'dataSet'";if(void 0===t)throw"dicomParser.readEncapsulatedImageFrame: missing required parameter 'pixelDataElement'";if(void 0===r)throw"dicomParser.readEncapsulatedImageFrame: missing required parameter 'frameIndex'";if(void 0===a)throw"dicomParser.readEncapsulatedImageFrame: parameter 'pixelDataElement' does not have basicOffsetTable";if("x7fe00010"!==t.tag)throw"dicomParser.readEncapsulatedImageFrame: parameter 'pixelDataElement' refers to non pixel data tag (expected tag = x7fe00010)";if(!0!==t.encapsulatedPixelData)throw"dicomParser.readEncapsulatedImageFrame: parameter 'pixelDataElement' refers to pixel data element that does not have encapsulated pixel data";if(!0!==t.hadUndefinedLength)throw"dicomParser.readEncapsulatedImageFrame: parameter 'pixelDataElement' refers to pixel data element that does not have undefined length";if(void 0===t.fragments)throw"dicomParser.readEncapsulatedImageFrame: parameter 'pixelDataElement' refers to pixel data element that does not have fragments";if(0===a.length)throw"dicomParser.readEncapsulatedImageFrame: basicOffsetTable has zero entries";if(r<0)throw"dicomParser.readEncapsulatedImageFrame: parameter 'frameIndex' must be >= 0";if(r>=a.length)throw"dicomParser.readEncapsulatedImageFrame: parameter 'frameIndex' must be < basicOffsetTable.length";var i=a[r],i=H(n,i);if(void 0===i)throw"dicomParser.readEncapsulatedImageFrame: unable to find fragment that matches basic offset table entry";return _(e,t,i,Q(r,a,n,i),n)}var $=!1;function K(e,t,r){if($||($=!0,console&&console.log&&console.log("WARNING: dicomParser.readEncapsulatedPixelData() has been deprecated")),void 0===e)throw"dicomParser.readEncapsulatedPixelData: missing required parameter 'dataSet'";if(void 0===t)throw"dicomParser.readEncapsulatedPixelData: missing required parameter 'element'";if(void 0===r)throw"dicomParser.readEncapsulatedPixelData: missing required parameter 'frame'";if("x7fe00010"!==t.tag)throw"dicomParser.readEncapsulatedPixelData: parameter 'element' refers to non pixel data tag (expected tag = x7fe00010)";if(!0!==t.encapsulatedPixelData)throw"dicomParser.readEncapsulatedPixelData: parameter 'element' refers to pixel data element that does not have encapsulated pixel data";if(!0!==t.hadUndefinedLength)throw"dicomParser.readEncapsulatedPixelData: parameter 'element' refers to pixel data element that does not have encapsulated pixel data";if(void 0===t.basicOffsetTable)throw"dicomParser.readEncapsulatedPixelData: parameter 'element' refers to pixel data element that does not have encapsulated pixel data";if(void 0===t.fragments)throw"dicomParser.readEncapsulatedPixelData: parameter 'element' refers to pixel data element that does not have encapsulated pixel data";if(r<0)throw"dicomParser.readEncapsulatedPixelData: parameter 'frame' must be >= 0";return 0!==t.basicOffsetTable.length?W(e,t,r):_(e,t,0,t.fragments.length)}t.default={isStringVr:d,isPrivateTag:f,parsePN:a,parseTM:n,parseDA:o,explicitElementToString:l,explicitDataSetToJS:u,createJPEGBasicOffsetTable:p,parseDicomDataSetExplicit:q,parseDicomDataSetImplicit:T,readFixedString:b,alloc:k,version:L,bigEndianByteArrayParser:N,ByteStream:J,sharedCopy:j,DataSet:w,findAndSetUNElementLength:y,findEndOfEncapsulatedElement:g,findItemDelimitationItemAndSetElementLength:x,littleEndianByteArrayParser:M,parseDicom:V,readDicomElementExplicit:B,readDicomElementImplicit:A,readEncapsulatedImageFrame:W,readEncapsulatedPixelData:K,readEncapsulatedPixelDataFromFragments:_,readPart10Header:G,readSequenceItemsExplicit:I,readSequenceItemsImplicit:F,readSequenceItem:S,readTag:h,LEI:"1.2.840.10008.1.2",LEE:"1.2.840.10008.1.2.1"}}],i={},n.m=a,n.c=i,n.d=function(e,t,r){n.o(e,t)||Object.defineProperty(e,t,{enumerable:!0,get:r})},n.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},n.t=function(t,e){if(1&e&&(t=n(t)),8&e)return t;if(4&e&&"object"==typeof t&&t&&t.__esModule)return t;var r=Object.create(null);if(n.r(r),Object.defineProperty(r,"default",{enumerable:!0,value:t}),2&e&&"string"!=typeof t)for(var a in t)n.d(r,a,function(e){return t[e]}.bind(null,a));return r},n.n=function(e){var t=e&&e.__esModule?function(){return e.default}:function(){return e};return n.d(t,"a",t),t},n.o=function(e,t){return Object.prototype.hasOwnProperty.call(e,t)},n.p="",n(n.s=1);function n(e){if(i[e])return i[e].exports;var t=i[e]={i:e,l:!1,exports:{}};return a[e].call(t.exports,t,t.exports,n),t.l=!0,t.exports}var a,i});
+//# sourceMappingURL=dicomParser.min.js.map</script>
+<script>
+(function(){
+  "use strict";
+  const dp = window.dicomParser;
+
+  // ---- UID dictionaries -------------------------------------------------
+  const SOP = {
+    "1.2.840.10008.5.1.4.1.1.2":"CT Image Storage",
+    "1.2.840.10008.5.1.4.1.1.2.1":"Enhanced CT Image Storage",
+    "1.2.840.10008.5.1.4.1.1.4":"MR Image Storage",
+    "1.2.840.10008.5.1.4.1.1.4.1":"Enhanced MR Image Storage",
+    "1.2.840.10008.5.1.4.1.1.128":"PET Image Storage",
+    "1.2.840.10008.5.1.4.1.1.130":"Enhanced PET Image Storage",
+    "1.2.840.10008.5.1.4.1.1.7":"Secondary Capture Image Storage",
+    "1.2.840.10008.5.1.4.1.1.7.1":"Multi-frame Single Bit SC Image Storage",
+    "1.2.840.10008.5.1.4.1.1.7.2":"Multi-frame Grayscale Byte SC Image Storage",
+    "1.2.840.10008.5.1.4.1.1.7.4":"Multi-frame True Color SC Image Storage",
+    "1.2.840.10008.5.1.4.1.1.481.2":"RT Dose Storage",
+    "1.2.840.10008.5.1.4.1.1.481.3":"RT Structure Set Storage",
+    "1.2.840.10008.5.1.4.1.1.481.4":"RT Beams Treatment Record Storage",
+    "1.2.840.10008.5.1.4.1.1.481.5":"RT Plan Storage",
+    "1.2.840.10008.5.1.4.1.1.481.8":"RT Ion Plan Storage"
+  };
+  const TS = {
+    "1.2.840.10008.1.2":"Implicit VR Little Endian",
+    "1.2.840.10008.1.2.1":"Explicit VR Little Endian",
+    "1.2.840.10008.1.2.1.99":"Deflated Explicit VR Little Endian",
+    "1.2.840.10008.1.2.2":"Explicit VR Big Endian",
+    "1.2.840.10008.1.2.4.50":"JPEG Baseline (Process 1)",
+    "1.2.840.10008.1.2.4.51":"JPEG Extended (Process 2 & 4)",
+    "1.2.840.10008.1.2.4.57":"JPEG Lossless (Process 14)",
+    "1.2.840.10008.1.2.4.70":"JPEG Lossless SV1 (Process 14 [SV1])",
+    "1.2.840.10008.1.2.4.80":"JPEG-LS Lossless",
+    "1.2.840.10008.1.2.4.81":"JPEG-LS Near-Lossless",
+    "1.2.840.10008.1.2.4.90":"JPEG 2000 (Lossless Only)",
+    "1.2.840.10008.1.2.4.91":"JPEG 2000",
+    "1.2.840.10008.1.2.5":"RLE Lossless"
+  };
+  const UNCOMPRESSED_LE = ["1.2.840.10008.1.2","1.2.840.10008.1.2.1"];
+
+  // compact tag-name dictionary for the header dump
+  const NAMES = {
+    "x00080005":"SpecificCharacterSet","x00080008":"ImageType","x00080016":"SOPClassUID",
+    "x00080018":"SOPInstanceUID","x00080020":"StudyDate","x00080021":"SeriesDate",
+    "x00080022":"AcquisitionDate","x00080023":"ContentDate","x00080030":"StudyTime",
+    "x00080060":"Modality","x00080070":"Manufacturer","x00080080":"InstitutionName",
+    "x0008103e":"SeriesDescription","x00081090":"ManufacturerModelName",
+    "x00100010":"PatientName","x00100020":"PatientID","x00100030":"PatientBirthDate",
+    "x00100040":"PatientSex","x00180050":"SliceThickness","x00180060":"KVP",
+    "x00181030":"ProtocolName","x00181151":"XRayTubeCurrent","x0018115e":"ExposureTime",
+    "x00185100":"PatientPosition","x0020000d":"StudyInstanceUID","x0020000e":"SeriesInstanceUID",
+    "x00200011":"SeriesNumber","x00200012":"AcquisitionNumber","x00200013":"InstanceNumber",
+    "x00200032":"ImagePositionPatient","x00200037":"ImageOrientationPatient",
+    "x00200052":"FrameOfReferenceUID","x00201041":"SliceLocation",
+    "x00280002":"SamplesPerPixel","x00280004":"PhotometricInterpretation",
+    "x00280006":"PlanarConfiguration","x00280008":"NumberOfFrames","x00280010":"Rows",
+    "x00280011":"Columns","x00280030":"PixelSpacing","x00280100":"BitsAllocated",
+    "x00280101":"BitsStored","x00280102":"HighBit","x00280103":"PixelRepresentation",
+    "x00281050":"WindowCenter","x00281051":"WindowWidth","x00281052":"RescaleIntercept",
+    "x00281053":"RescaleSlope","x00281054":"RescaleType","x7fe00010":"PixelData",
+    "x00020002":"MediaStorageSOPClassUID","x00020003":"MediaStorageSOPInstanceUID",
+    "x00020010":"TransferSyntaxUID","x00020012":"ImplementationClassUID"
+  };
+
+  // ---- DOM --------------------------------------------------------------
+  const $ = id => document.getElementById(id);
+  const drop=$("drop"), fileInput=$("fileInput"), fileline=$("fileline"),
+        fileName=$("fileName"), modBadge=$("modBadge"), dims=$("dims"),
+        errBanner=$("errBanner"), checkArea=$("checkArea"), dlArea=$("dlArea"),
+        cv=$("cv"), ctx=cv.getContext("2d"), viewerEmpty=$("viewerEmpty"),
+        noPreview=$("noPreview"), controls=$("controls"),
+        wcSlider=$("wcSlider"), wwSlider=$("wwSlider"), wcVal=$("wcVal"), wwVal=$("wwVal"),
+        frameRow=$("frameRow"), frameSlider=$("frameSlider"), frameVal=$("frameVal"),
+        frameTag=$("frameTag"), presetsEl=$("presets");
+
+  let state=null;        // current frame render state
+  let dataSet=null, byteArray=null;
+
+  // ---- file handling ----------------------------------------------------
+  drop.addEventListener("click",()=>fileInput.click());
+  fileInput.addEventListener("change",e=>{ if(e.target.files[0]) loadFile(e.target.files[0]); });
+  ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+  drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f) loadFile(f); });
+
+  function showErr(msg){ errBanner.textContent="⚠  "+msg; errBanner.classList.add("show"); }
+  function clearErr(){ errBanner.classList.remove("show"); }
+
+  function loadFile(file){
+    clearErr();
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        byteArray=new Uint8Array(reader.result);
+        dataSet=dp.parseDicom(byteArray);
+        fileName.textContent=file.name;
+        fileline.classList.add("show");
+        runChecks(file.name);
+        renderImage();
+      }catch(err){
+        console.error(err);
+        showErr("Could not parse this file as DICOM: "+err.message);
+        fileline.classList.remove("show");
+        resetViewer(); checkArea.innerHTML='<div class="empty">Parse failed</div>';
+        dlArea.style.display="none";
+      }
+    };
+    reader.onerror=()=>showErr("Could not read the file.");
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ---- header check -----------------------------------------------------
+  function metaUID(tag){
+    // meta-group elements: read string and strip null padding
+    let v = dataSet.string(tag);
+    return v ? v.replace(/\0+$/,"").trim() : null;
+  }
+
+  function runChecks(fname){
+    const sopUID=metaUID("x00020002");
+    const tsUID =metaUID("x00020010");
+    const orient=dataSet.string("x00200037");
+    const modality=(dataSet.string("x00080060")||"").trim();
+
+    // modality badge
+    if(modality){ modBadge.style.display=""; modBadge.textContent=modality; }
+    else modBadge.style.display="none";
+
+    const rows=[];
+
+    // SOP class
+    (function(){
+      const name=SOP[sopUID]||(sopUID?("Unknown ("+sopUID+")"):"Not found");
+      let cls="info",hint="";
+      if(/Secondary Capture/i.test(name)){cls="err";
+        hint='<span class="lab">Solution:</span> Secondary Capture should not be used for treatment imaging.';}
+      else if(/Enhanced/i.test(name)){cls="warn";
+        hint='<span class="lab">Solution:</span> Enhanced multi-frame — run the 3D splitting tool to convert to single-frame.';}
+      else if(/(CT|MR|PET) Image Storage/i.test(name) && !/Enhanced/i.test(name)){cls="ok";
+        hint="Standard single-frame image storage — good.";}
+      else {cls="warn";
+        hint='<span class="lab">Note:</span> Not a standard CT / MR / PET image storage class.';}
+      rows.push({code:"(0002,0002)",name:"Media Storage SOP Class",value:name,cls,
+        chip:cls==="ok"?"OK":cls==="err"?"Reject":"Check",hint,
+        exp:"MR / CT / PET — not Secondary or Enhanced"});
+    })();
+
+    // transfer syntax
+    (function(){
+      const name=TS[tsUID]||(tsUID?("Unknown ("+tsUID+")"):"Not found");
+      let cls,hint;
+      if(UNCOMPRESSED_LE.includes(tsUID)){cls="ok";chip="OK";
+        hint="Uncompressed Little Endian — good.";}
+      else {cls="warn";chip="Check";
+        hint='<span class="lab">Solution:</span> Pixel data is compressed / non-standard. Run the decompression step before use.';}
+      var chip;
+      rows.push({code:"(0002,0010)",name:"Transfer Syntax",value:name,cls,
+        chip:cls==="ok"?"OK":"Check",hint,exp:"Explicit / Implicit VR Little Endian"});
+    })();
+
+    // orientation
+    (function(){
+      if(!orient){
+        rows.push({code:"(0020,0037)",name:"Image Orientation (Patient)",value:"Not found",
+          cls:"info",chip:"Info",hint:"Not present in this object.",exp:"For CT: integers, each 0 or ±1"});
+        return;
+      }
+      const parts=orient.split("\\").map(s=>parseFloat(s));
+      const axisAligned=parts.every(v=>Math.abs(v)<1e-4||Math.abs(Math.abs(v)-1)<1e-4);
+      rows.push({code:"(0020,0037)",name:"Image Orientation (Patient)",
+        value:parts.map(v=>(Math.round(v*1000)/1000)).join(", "),
+        cls:axisAligned?"ok":"warn",chip:axisAligned?"OK":"Tilt?",
+        hint:axisAligned?"Axis-aligned (no gantry tilt detected)."
+          :'<span class="lab">Warning:</span> Non axis-aligned — may indicate gantry tilt.',
+        exp:"For CT: integers, each 0 or ±1"});
+    })();
+
+    // build HTML
+    checkArea.innerHTML=rows.map(r=>`
+      <div class="checkrow">
+        <div class="top">
+          <span class="name">${r.name}</span>
+          <span class="code">${r.code}</span>
+          <span class="chip ${r.cls}">${r.chip}</span>
+        </div>
+        <div class="value">${escapeHtml(r.value)}</div>
+        <div class="hint"><span class="lab">Expected:</span> ${r.exp}</div>
+        <div class="hint">${r.hint}</div>
+      </div>`).join("");
+    dlArea.style.display="";
+  }
+
+  function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+  // ---- image rendering --------------------------------------------------
+  function resetViewer(){
+    cv.style.display="none"; controls.style.display="none";
+    noPreview.style.display="none"; viewerEmpty.style.display="";
+    frameRow.style.display="none"; frameTag.textContent="";
+  }
+
+  function firstNum(tag,idx){ try{const v=dataSet.floatString(tag,idx||0); return (v===undefined||isNaN(v))?null:v;}catch(e){return null;} }
+
+  function renderImage(){
+    resetViewer();
+    const tsUID=metaUID("x00020010");
+    const pde=dataSet.elements.x7fe00010;
+    if(!pde){ showNoPreview("No PixelData (7FE0,0010) in this object."); return; }
+
+    if(!UNCOMPRESSED_LE.includes(tsUID)){
+      const tname=TS[tsUID]||tsUID||"unknown";
+      showNoPreview("Pixel data uses <b>"+escapeHtml(tname)+"</b>.<br>This viewer renders uncompressed Little Endian only — the header check above is still valid.");
+      return;
+    }
+
+    const rows=dataSet.uint16("x00280010"), cols=dataSet.uint16("x00280011");
+    const bits=dataSet.uint16("x00280100")||16;
+    const pr=dataSet.uint16("x00280103")||0;
+    const samples=dataSet.uint16("x00280002")||1;
+    const photometric=(dataSet.string("x00280004")||"MONOCHROME2").trim();
+    let frames=parseInt(dataSet.intString("x00280008")||"1",10); if(!frames||frames<1)frames=1;
+    const slope=firstNum("x00281053")!==null?firstNum("x00281053"):1;
+    const intercept=firstNum("x00281052")!==null?firstNum("x00281052"):0;
+
+    if(!rows||!cols){ showNoPreview("Missing Rows/Columns — cannot render."); return; }
+
+    dims.textContent=cols+" × "+rows+(frames>1?(" × "+frames+" frames"):"")+
+      " · "+bits+"-bit"+(samples===3?" RGB":"");
+
+    const ctxState={rows,cols,bits,pr,samples,photometric,frames,slope,intercept,
+      pde,frame:Math.floor(frames/2)};
+
+    // window defaults from tags if present (rescaled units)
+    let wc=firstNum("x00281050"), ww=firstNum("x00281051");
+    state=ctxState;
+    buildFrame(ctxState);  // sets ctxState.raw + min/max
+    if(samples!==3){
+      if(wc===null) wc=Math.round((ctxState.min+ctxState.max)/2);
+      if(ww===null||ww<1) ww=Math.max(1,Math.round(ctxState.max-ctxState.min));
+      setupSliders(ctxState,wc,ww);
+    } else {
+      controls.style.display="none";
+    }
+
+    cv.width=cols; cv.height=rows;
+    viewerEmpty.style.display="none"; noPreview.style.display="none"; cv.style.display="block";
+
+    if(frames>1){
+      frameRow.style.display="flex";
+      frameSlider.min=0; frameSlider.max=frames-1; frameSlider.value=ctxState.frame;
+      frameVal.textContent=(ctxState.frame+1)+"/"+frames;
+      frameTag.textContent="slice "+(ctxState.frame+1)+" of "+frames;
+    }
+    paint();
+  }
+
+  function showNoPreview(html){
+    resetViewer(); viewerEmpty.style.display="none";
+    noPreview.style.display="block"; noPreview.innerHTML=html;
+  }
+
+  // extract raw typed array for current frame; compute min/max (rescaled) for mono
+  function buildFrame(s){
+    const px=s.rows*s.cols;
+    const bpp=s.bits<=8?1:2;
+    const frameBytes=px*bpp*s.samples;
+    const absOff=byteArray.byteOffset + s.pde.dataOffset + s.frame*frameBytes;
+    const buf=byteArray.buffer;
+    let raw;
+    if(bpp===1){
+      raw = s.pr===1 ? new Int8Array(buf,absOff,px*s.samples) : new Uint8Array(buf,absOff,px*s.samples);
+    } else {
+      if(absOff%2===0){
+        raw = s.pr===1 ? new Int16Array(buf,absOff,px) : new Uint16Array(buf,absOff,px);
+      } else {
+        const copy=buf.slice(absOff,absOff+frameBytes);
+        raw = s.pr===1 ? new Int16Array(copy) : new Uint16Array(copy);
+      }
+    }
+    s.raw=raw;
+    if(s.samples!==3){
+      let mn=Infinity,mx=-Infinity;
+      for(let i=0;i<px;i++){ const v=raw[i]*s.slope+s.intercept; if(v<mn)mn=v; if(v>mx)mx=v; }
+      s.min=mn; s.max=mx;
+    }
+  }
+
+  function setupSliders(s,wc,ww){
+    controls.style.display="block";
+    const lo=Math.floor(s.min), hi=Math.ceil(s.max);
+    wcSlider.min=lo; wcSlider.max=hi; wcSlider.step=1;
+    wwSlider.min=1;  wwSlider.max=Math.max(2,hi-lo); wwSlider.step=1;
+    wcSlider.value=Math.min(hi,Math.max(lo,wc));
+    wwSlider.value=Math.min(wwSlider.max,Math.max(1,ww));
+    s.wc=+wcSlider.value; s.ww=+wwSlider.value;
+    wcVal.textContent=s.wc; wwVal.textContent=s.ww;
+    buildPresets(s);
+  }
+
+  const PRESETS=[
+    ["Soft tissue",40,400],["Lung",-600,1500],["Bone",300,1500],
+    ["Brain",40,80],["Mediastinum",50,350]
+  ];
+  function buildPresets(s){
+    presetsEl.innerHTML="";
+    PRESETS.forEach(([label,wc,ww])=>{
+      const b=document.createElement("button");
+      b.textContent=label;
+      b.onclick=()=>{
+        wcSlider.value=Math.min(wcSlider.max,Math.max(wcSlider.min,wc));
+        wwSlider.value=Math.min(wwSlider.max,Math.max(1,ww));
+        s.wc=+wcSlider.value; s.ww=+wwSlider.value;
+        wcVal.textContent=s.wc; wwVal.textContent=s.ww; paint();
+      };
+      presetsEl.appendChild(b);
+    });
+    const auto=document.createElement("button");
+    auto.textContent="Full range"; auto.style.color="var(--accent)";
+    auto.onclick=()=>{
+      const wc=Math.round((s.min+s.max)/2), ww=Math.max(1,Math.round(s.max-s.min));
+      wcSlider.value=wc; wwSlider.value=Math.min(wwSlider.max,ww);
+      s.wc=+wcSlider.value; s.ww=+wwSlider.value;
+      wcVal.textContent=s.wc; wwVal.textContent=s.ww; paint();
+    };
+    presetsEl.appendChild(auto);
+  }
+
+  wcSlider.addEventListener("input",()=>{ if(!state)return; state.wc=+wcSlider.value; wcVal.textContent=state.wc; paint(); });
+  wwSlider.addEventListener("input",()=>{ if(!state)return; state.ww=+wwSlider.value; wwVal.textContent=state.ww; paint(); });
+  frameSlider.addEventListener("input",()=>{
+    if(!state)return;
+    state.frame=+frameSlider.value;
+    frameVal.textContent=(state.frame+1)+"/"+state.frames;
+    frameTag.textContent="slice "+(state.frame+1)+" of "+state.frames;
+    buildFrame(state); paint();
+  });
+
+  function paint(){
+    const s=state; if(!s)return;
+    const px=s.rows*s.cols;
+    const img=ctx.createImageData(s.cols,s.rows);
+    const d=img.data;
+    if(s.samples===3){
+      // interleaved RGB, 8-bit (PlanarConfiguration 0 assumed)
+      for(let i=0;i<px;i++){ const j=i*4,k=i*3; d[j]=s.raw[k];d[j+1]=s.raw[k+1];d[j+2]=s.raw[k+2];d[j+3]=255; }
+    } else {
+      const lo=s.wc-s.ww/2, rng=s.ww||1, inv=s.photometric==="MONOCHROME1";
+      for(let i=0;i<px;i++){
+        let g=((s.raw[i]*s.slope+s.intercept)-lo)/rng*255;
+        g=g<0?0:g>255?255:g; if(inv)g=255-g;
+        const j=i*4; d[j]=d[j+1]=d[j+2]=g; d[j+3]=255;
+      }
+    }
+    ctx.putImageData(img,0,0);
+  }
+
+  // ---- full header dump -------------------------------------------------
+  const STR_VR=["AE","AS","CS","DA","DS","DT","IS","LO","LT","PN","SH","ST","TM","UI","UT","UR"];
+  function elemValue(tag,el){
+    if(el.length===0) return "";
+    const vr=el.vr;
+    try{
+      if(vr==="SQ"||(el.items&&el.items.length)) return "<sequence, "+(el.items?el.items.length:0)+" item(s)>";
+      if(vr&&STR_VR.includes(vr)){ const s=dataSet.string(tag); return s===undefined?"":s; }
+      if(vr==="US") return String(dataSet.uint16(tag));
+      if(vr==="UL") return String(dataSet.uint32(tag));
+      if(vr==="SS") return String(dataSet.int16(tag));
+      if(vr==="SL") return String(dataSet.int32(tag));
+      if(vr==="FL"||vr==="FD"){ const v=dataSet.floatString(tag); return v===undefined?("<"+el.length+" bytes>"):String(v); }
+      if(vr==="AT") return "<tag>";
+      // unknown VR: attempt printable string for short elements
+      if(el.length<=128){ const s=dataSet.string(tag); if(s!==undefined && /^[\x20-\x7e\\^=. /-]*$/.test(s)) return s; }
+    }catch(e){}
+    return "<binary, "+el.length+" bytes>";
+  }
+  function tagLabel(tag){
+    const g=tag.substring(1,5).toUpperCase(), e=tag.substring(5,9).toUpperCase();
+    return "("+g+","+e+")";
+  }
+  function buildHeaderText(){
+    const keys=Object.keys(dataSet.elements).sort();
+    const lines=["DICOM Header Dump","================="];
+    for(const tag of keys){
+      const el=dataSet.elements[tag];
+      const name=NAMES[tag]||"";
+      const vr=el.vr||"  ";
+      const val=elemValue(tag,el);
+      lines.push(tagLabel(tag)+"  "+vr+"  "+(name?name.padEnd(28):"".padEnd(28))+"  "+val);
+    }
+    return lines.join("\n");
+  }
+  $("dlHeader").addEventListener("click",()=>{
+    if(!dataSet)return;
+    const blob=new Blob([buildHeaderText()],{type:"text/plain"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=(fileName.textContent.replace(/\.[^.]*$/,"")||"dicom")+"_header.txt";
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+
+})();
+</script>
+</body>
+</html>
